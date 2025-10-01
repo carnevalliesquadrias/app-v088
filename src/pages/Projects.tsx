@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Plus, Search, Calendar, User, DollarSign, Clock, CreditCard as Edit2, Trash2, FileText, Download, Filter } from 'lucide-react';
 import { useApp, Project } from '../contexts/AppContext';
+import { useSettings } from '../contexts/SettingsContext';
 import ProjectFormModal from '../components/ProjectFormModal';
 
 const Projects: React.FC = () => {
   const { projects, deleteProject } = useApp();
+  const { pdfSettings, companySettings } = useSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -44,77 +46,148 @@ const Projects: React.FC = () => {
   const generatePDF = async (project: Project) => {
     const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
-    
-    // Configurações da empresa
+
     const companyInfo = {
-      name: 'CARNEVALLI ESQUADRIAS LTDA',
-      address: 'BUARQUE DE MACEDO, 2735 - PAVILHÃO - CENTRO',
-      city: 'Nova Prata - RS - CEP: 95320-000',
-      phone: '(54) 3242-2072',
-      email: 'carnevalli.esquadrias@gmail.com',
-      cnpj: '88.235.288/0001-24',
-      ie: '0850011930'
+      name: companySettings.basic.name || 'CARNEVALLI ESQUADRIAS LTDA',
+      address: `${companySettings.address.street}, ${companySettings.address.number}${companySettings.address.complement ? ' - ' + companySettings.address.complement : ''} - ${companySettings.address.neighborhood}`,
+      city: `${companySettings.address.city} - ${companySettings.address.state} - CEP: ${companySettings.address.zipCode}`,
+      phone: companySettings.basic.phone,
+      email: companySettings.basic.email,
+      cnpj: companySettings.fiscal.cnpj,
+      ie: companySettings.fiscal.ie
     };
-    
-    // Adicionar marca d'água (logo transparente no fundo)
-    try {
-      const logoImg = new Image();
-      logoImg.crossOrigin = 'anonymous';
-      logoImg.src = '/400dpiLogoCropped.png';
-      
-      await new Promise((resolve) => {
-        logoImg.onload = () => {
-          // Criar canvas para processar a imagem
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            throw new Error('Não foi possível obter o contexto 2D do canvas');
-          }
-          
-          // Definir tamanho do canvas
-          canvas.width = logoImg.width;
-          canvas.height = logoImg.height;
-          
-          // Desenhar a imagem com transparência
-          //ctx.globalAlpha = 0.08;
-          //ctx.drawImage(logoImg, 0, 0);
-          
-          // Converter para base64
-          const watermarkData = canvas.toDataURL('image/png');
-          
-          // Adicionar marca d'água centralizada
-          const imgWidth = 160;
-          const imgHeight = 160;
-          const x = (210 - imgWidth) / 2;
-          const y = (297 - imgHeight) / 2;
-          
-          doc.addImage(watermarkData, 'PNG', x, y, imgWidth, imgHeight);
-          resolve(true);
-        };
-        logoImg.onerror = () => resolve(false);
-      });
-    } catch (error) {
-      console.log('Logo não encontrado, continuando sem marca d\'água');
+
+    if (pdfSettings.watermark.enabled) {
+      try {
+        const logoImg = new Image();
+        logoImg.crossOrigin = 'anonymous';
+        logoImg.src = '/400dpiLogoCropped.png';
+
+        await new Promise((resolve) => {
+          logoImg.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              throw new Error('Não foi possível obter o contexto 2D do canvas');
+            }
+
+            canvas.width = logoImg.width;
+            canvas.height = logoImg.height;
+
+            ctx.globalAlpha = pdfSettings.watermark.opacity;
+            ctx.drawImage(logoImg, 0, 0);
+
+            const watermarkData = canvas.toDataURL('image/png');
+
+            const imgWidth = pdfSettings.watermark.size;
+            const imgHeight = pdfSettings.watermark.size;
+
+            let x = 0;
+            let y = 0;
+
+            switch (pdfSettings.watermark.position) {
+              case 'center':
+                x = (210 - imgWidth) / 2;
+                y = (297 - imgHeight) / 2;
+                break;
+              case 'top-left':
+                x = 10;
+                y = 10;
+                break;
+              case 'top-right':
+                x = 210 - imgWidth - 10;
+                y = 10;
+                break;
+              case 'bottom-left':
+                x = 10;
+                y = 297 - imgHeight - 10;
+                break;
+              case 'bottom-right':
+                x = 210 - imgWidth - 10;
+                y = 297 - imgHeight - 10;
+                break;
+            }
+
+            doc.addImage(watermarkData, 'PNG', x, y, imgWidth, imgHeight);
+            resolve(true);
+          };
+          logoImg.onerror = () => resolve(false);
+        });
+      } catch (error) {
+        console.log('Logo não encontrado, continuando sem marca d\'água');
+      }
     }
-    
-    // Cabeçalho com fundo azul
-    //doc.setFillColor(r, g, b);
- // doc.rect((headerWidth / steps) * i, 0, headerWidth / steps, headerHeight, 'F');
 
-    // Cabeçalho com gradiente simulado
-const headerHeight = 35;
-const headerWidth = 210;
-const steps = 50; // Quanto maior, mais suave o gradiente
+    const headerHeight = pdfSettings.header.height;
+    const headerWidth = 210;
+    const steps = 50;
 
-for (let i = 0; i < steps; i++) {
-  const ratio = i / steps;
-  // Cor inicial: azul (255, 255, 255), final: azul (26, 140, 155)
-  const r = Math.round(255 + (0 - 255) * ratio);
-  const g = Math.round(140 + (128 - 255) * ratio);
-  const b = Math.round(155 + (128 - 255) * ratio);
-  doc.setFillColor(r, g, b);
-  doc.rect((headerWidth / steps) * i, 0, headerWidth / steps, headerHeight, 'F');
-}
+    if (pdfSettings.header.gradient.enabled) {
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 70, g: 130, b: 180 };
+      };
+
+      const startColor = hexToRgb(pdfSettings.header.gradient.startColor);
+      const endColor = hexToRgb(pdfSettings.header.gradient.endColor);
+
+      for (let i = 0; i < steps; i++) {
+        const ratio = i / steps;
+
+        let r, g, b;
+
+        switch (pdfSettings.header.gradient.direction) {
+          case 'horizontal':
+            r = Math.round(startColor.r + (endColor.r - startColor.r) * ratio);
+            g = Math.round(startColor.g + (endColor.g - startColor.g) * ratio);
+            b = Math.round(startColor.b + (endColor.b - startColor.b) * ratio);
+            doc.setFillColor(r, g, b);
+            doc.rect((headerWidth / steps) * i, 0, headerWidth / steps, headerHeight, 'F');
+            break;
+
+          case 'vertical':
+            r = Math.round(startColor.r + (endColor.r - startColor.r) * ratio);
+            g = Math.round(startColor.g + (endColor.g - startColor.g) * ratio);
+            b = Math.round(startColor.b + (endColor.b - startColor.b) * ratio);
+            doc.setFillColor(r, g, b);
+            doc.rect(0, (headerHeight / steps) * i, headerWidth, headerHeight / steps, 'F');
+            break;
+
+          case 'diagonal-right':
+            r = Math.round(startColor.r + (endColor.r - startColor.r) * ratio);
+            g = Math.round(startColor.g + (endColor.g - startColor.g) * ratio);
+            b = Math.round(startColor.b + (endColor.b - startColor.b) * ratio);
+            doc.setFillColor(r, g, b);
+            doc.rect((headerWidth / steps) * i, 0, headerWidth / steps, headerHeight, 'F');
+            break;
+
+          case 'diagonal-left':
+            r = Math.round(endColor.r + (startColor.r - endColor.r) * ratio);
+            g = Math.round(endColor.g + (startColor.g - endColor.g) * ratio);
+            b = Math.round(endColor.b + (startColor.b - endColor.b) * ratio);
+            doc.setFillColor(r, g, b);
+            doc.rect((headerWidth / steps) * i, 0, headerWidth / steps, headerHeight, 'F');
+            break;
+        }
+      }
+    } else {
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 70, g: 130, b: 180 };
+      };
+
+      const bgColor = hexToRgb(pdfSettings.header.backgroundColor);
+      doc.setFillColor(bgColor.r, bgColor.g, bgColor.b);
+      doc.rect(0, 0, headerWidth, headerHeight, 'F');
+    }
     
     // Adicionar logo no cabeçalho
     try {
@@ -133,10 +206,19 @@ for (let i = 0; i < steps; i++) {
       console.log('Logo não encontrado no cabeçalho');
     }
     
-    // Nome da empresa
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
-    doc.setFont('fenix ', 'bold');
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 255, g: 255, b: 255 };
+    };
+
+    const textColor = hexToRgb(pdfSettings.header.companyName.color);
+    doc.setTextColor(textColor.r, textColor.g, textColor.b);
+    doc.setFontSize(pdfSettings.header.companyName.fontSize);
+    doc.setFont('helvetica', pdfSettings.header.companyName.fontWeight);
     doc.text(companyInfo.name, 45, 18);
     
     // Informações de contato
